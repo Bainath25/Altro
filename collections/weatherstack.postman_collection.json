@@ -121,7 +121,7 @@
 				"header": [
 					{
 						"key": "x-api-key",
-						"value": "reqres-free-v1",
+						"value": "{{api_key}}",
 						"type": "text"
 					}
 				],
