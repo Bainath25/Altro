@@ -1,0 +1,16 @@
+{
+	"id": "8694f1cb-0907-489d-96ec-8d10a8336270",
+	"name": "Weather Dev",
+	"values": [
+		{
+			"key": "access_key",
+			"value": "",
+			"type": "default",
+			"enabled": true
+		}
+	],
+	"color": null,
+	"_postman_variable_scope": "environment",
+	"_postman_exported_at": "2026-01-08T12:57:18.455Z",
+	"_postman_exported_using": "Postman/11.77.2"
+}
