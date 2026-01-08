@@ -26,6 +26,7 @@ steps:
   displayName: 'Run WeatherStack API Test'
   env:
     access_key: $(WEATHERSTACK_KEY)
+    api_key: $(api_key)
 
 # ✅ Publish JUnit to Tests tab
 - task: PublishTestResults@2
