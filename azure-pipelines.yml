@@ -1,234 +1,332 @@
 
-trigger: none   # manual runs only; change to - main if you want CI
+# azure-pipelines.yml
+trigger: none   # manual runs; change to - main if you also want CI
 
 pool:
   vmImage: 'ubuntu-latest'
 
-# One variable group containing all secrets.
+# Single secure variable group for all envs
 variables:
 - group: WeatherStackSecrets
 
 stages:
 # =========================
-# DEV
+# DEV (independent)
 # =========================
 - stage: DEV
   displayName: "DEV"
   dependsOn: []
   jobs:
-  - deployment: Dev_DeployAndValidate
-    displayName: "Dev: Build, Deploy & Validate API"
-    environment: dev
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
-            displayName: "Checkout repository"
+  - job: Dev_FetchAndValidate
+    displayName: "DEV: Fetch Latest & Validate API"
+    steps:
+    - checkout: none
 
-          - task: NodeTool@0
-            inputs:
-              versionSpec: '18.x'
-            displayName: "Install Node.js 18.x"
+    - script: sudo apt-get update && sudo apt-get install -y jq
+      displayName: "Install jq"
 
-          - script: npm install -g newman newman-reporter-htmlextra
-            displayName: "Install Newman & reporters"
+    - script: |
+        set -e
+        mkdir -p collections env
 
-          - script: |
-              set -e
-              mkdir -p newman
-              ENV_FILE="env/dev.postman_environment.json"
-              [ -f "${ENV_FILE}" ] || { echo "Missing ${ENV_FILE}"; exit 3; }
+        echo "Downloading latest Postman collection (secure header)..."
+        curl --fail --silent --show-error \
+          --header "X-Api-Key: $(POSTMAN_API_KEY)" \
+          "https://api.getpostman.com/collections/$(COLLECTION_UID)" \
+          | jq -r '.collection' > collections/weatherstack.postman_collection.json
 
-              newman run collections/weatherstack.postman_collection.json \
-                --environment "${ENV_FILE}" \
-                --env-var access_key="$(WEATHERSTACK_KEY)" \
-                --env-var api_key="$(DEV_API_KEY)" \
-                --reporters cli,htmlextra,junit \
-                --reporter-htmlextra-export "newman/dev-report.html" \
-                --reporter-junit-export "newman/dev-results.xml"
+        echo "Downloading latest DEV environment (secure header)..."
+        curl --fail --silent --show-error \
+          --header "X-Api-Key: $(POSTMAN_API_KEY)" \
+          "https://api.getpostman.com/environments/$(DEV_ENV_UID)" \
+          | jq -r '.environment' > env/dev.postman_environment.json
 
-              {
-                echo "# WeatherStack API — DEV Validation"
-                echo "- JUnit: newman/dev-results.xml"
-                echo "- HTML: newman/dev-report.html"
-              } > newman/dev-summary.md
+        # Optional: override base_url at runtime if you prefer
+        if [ -n "$(BASE_URL_DEV)" ]; then
+          jq '.values |= map(if .key=="base_url" then .value="$(BASE_URL_DEV)" else . end)' \
+            env/dev.postman_environment.json > env/dev.tmp && mv env/dev.tmp env/dev.postman_environment.json
+        fi
 
-              echo "##vso[task.uploadsummary]newman/dev-summary.md"
-            displayName: "Execute API validation (DEV)"
-            env:
-              WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
-              DEV_API_KEY: $(DEV_API_KEY)
+        ls -la collections env
+      displayName: "Fetch latest collection & DEV environment"
 
-          - task: PublishTestResults@2
-            displayName: "Publish DEV test results"
-            condition: always()
-            inputs:
-              testResultsFormat: 'JUnit'
-              testResultsFiles: 'newman/dev-results.xml'
-              testRunTitle: 'WeatherStack API — DEV'
-              failTaskOnFailedTests: false
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: "Install Node.js 18.x"
 
-          - task: PublishBuildArtifacts@1
-            displayName: "Publish DEV HTML report"
-            condition: always()
-            inputs:
-              PathtoPublish: 'newman'
-              ArtifactName: 'NewmanReports'
-              publishLocation: 'Container'
+    - script: npm install -g newman newman-reporter-htmlextra
+      displayName: "Install Newman & reporters"
+
+    - script: |
+        set -e
+        mkdir -p newman
+
+        newman run collections/weatherstack.postman_collection.json \
+          --environment env/dev.postman_environment.json \
+          --env-var access_key="$(WEATHERSTACK_KEY)" \
+          --env-var api_key="$(DEV_API_KEY)" \
+          --reporters cli,htmlextra,junit \
+          --reporter-htmlextra-export "newman/dev-report.html" \
+          --reporter-junit-export "newman/dev-results.xml"
+
+        {
+          echo "# Weather API Tests — DEV"
+          echo "- JUnit: newman/dev-results.xml"
+          echo "- HTML: newman/dev-report.html"
+        } > newman/dev-summary.md
+        echo "##vso[task.uploadsummary]newman/dev-summary.md"
+      displayName: "Execute API validation (DEV)"
+      env:
+        POSTMAN_API_KEY: $(POSTMAN_API_KEY)
+        WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
+        DEV_API_KEY: $(DEV_API_KEY)
+        BASE_URL_DEV: $(BASE_URL_DEV)
+
+    - task: PublishTestResults@2
+      displayName: "Publish DEV test results"
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'newman/dev-results.xml'
+        testRunTitle: 'Weather API — DEV'
+
+    - task: PublishBuildArtifacts@1
+      displayName: "Publish DEV HTML report"
+      condition: always()
+      inputs:
+        PathtoPublish: 'newman'
+        ArtifactName: 'NewmanReports'
+        publishLocation: 'Container'
 
 # =========================
-# QA
+# QA (independent)
 # =========================
 - stage: QA
   displayName: "QA"
   dependsOn: []
   jobs:
-  - deployment: QA_DeployAndValidate
-    displayName: "QA: Deploy & Validate API"
-    environment: qa
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
-            displayName: "Checkout repository"
+  - job: QA_FetchAndValidate
+    displayName: "QA: Fetch Latest & Validate API"
+    steps:
+    - checkout: none
 
-          - task: NodeTool@0
-            inputs:
-              versionSpec: '18.x'
-            displayName: "Install Node.js 18.x"
+    - script: sudo apt-get update && sudo apt-get install -y jq
+      displayName: "Install jq"
 
-          - script: npm install -g newman newman-reporter-htmlextra
-            displayName: "Install Newman & reporters"
+    - script: |
+        set -e
+        mkdir -p collections env
 
-          - script: |
-              set -e
-              mkdir -p newman
-              ENV_FILE="env/qa.postman_environment.json"
-              [ -f "${ENV_FILE}" ] || { echo "Missing ${ENV_FILE}"; exit 3; }
+        echo "Downloading latest Postman collection (secure header)..."
+        curl --fail --silent --show-error \
+          --header "X-Api-Key: $(POSTMAN_API_KEY)" \
+          "https://api.getpostman.com/collections/$(COLLECTION_UID)" \
+          | jq -r '.collection' > collections/weatherstack.postman_collection.json
 
-              newman run collections/weatherstack.postman_collection.json \
-                --environment "${ENV_FILE}" \
-                --env-var access_key="$(WEATHERSTACK_KEY)" \
-                --env-var api_key="$(QA_API_KEY)" \
-                --reporters cli,htmlextra,junit \
-                --reporter-htmlextra-export "newman/qa-report.html" \
-                --reporter-junit-export "newman/qa-results.xml"
+        echo "Downloading latest QA environment (secure header)..."
+        curl --fail --silent --show-error \
+          --header "X-Api-Key: $(POSTMAN_API_KEY)" \
+          "https://api.getpostman.com/environments/$(QA_ENV_UID)" \
+          | jq -r '.environment' > env/qa.postman_environment.json
 
-              {
-                echo "# WeatherStack API — QA Validation"
-                echo "- JUnit: newman/qa-results.xml"
-                echo "- HTML: newman/qa-report.html"
-              } > newman/qa-summary.md
+        if [ -n "$(BASE_URL_QA)" ]; then
+          jq '.values |= map(if .key=="base_url" then .value="$(BASE_URL_QA)" else . end)' \
+            env/qa.postman_environment.json > env/qa.tmp && mv env/qa.tmp env/qa.postman_environment.json
+        fi
 
-              echo "##vso[task.uploadsummary]newman/qa-summary.md"
-            displayName: "Execute API validation (QA)"
-            env:
-              WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
-              QA_API_KEY: $(QA_API_KEY)
+        ls -la collections env
+      displayName: "Fetch latest collection & QA environment"
 
-          - task: PublishTestResults@2
-            displayName: "Publish QA test results"
-            condition: always()
-            inputs:
-              testResultsFormat: 'JUnit'
-              testResultsFiles: 'newman/qa-results.xml'
-              testRunTitle: 'WeatherStack API — QA'
-              failTaskOnFailedTests: false
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+      displayName: "Install Node.js 18.x"
 
-          - task: PublishBuildArtifacts@1
-            displayName: "Publish QA HTML report"
-            condition: always()
-            inputs:
-              PathtoPublish: 'newman'
-              ArtifactName: 'NewmanReports'
-              publishLocation: 'Container'
+    - script: npm install -g newman newman-reporter-htmlextra
+      displayName: "Install Newman & reporters"
+
+    - script: |
+        set -e
+        mkdir -p newman
+
+        newman run collections/weatherstack.postman_collection.json \
+          --environment env/qa.postman_environment.json \
+          --env-var access_key="$(WEATHERSTACK_KEY)" \
+          --env-var api_key="$(QA_API_KEY)" \
+          --reporters cli,htmlextra,junit \
+          --reporter-htmlextra-export "newman/qa-report.html" \
+          --reporter-junit-export "newman/qa-results.xml"
+
+        {
+          echo "# Weather API Tests — QA"
+          echo "- JUnit: newman/qa-results.xml"
+          echo "- HTML: newman/qa-report.html"
+        } > newman/qa-summary.md
+        echo "##vso[task.uploadsummary]newman/qa-summary.md"
+      displayName: "Execute API validation (QA)"
+      env:
+        POSTMAN_API_KEY: $(POSTMAN_API_KEY)
+        WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
+        QA_API_KEY: $(QA_API_KEY)
+        BASE_URL_QA: $(BASE_URL_QA)
+
+    - task: PublishTestResults@2
+      displayName: "Publish QA test results"
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'newman/qa-results.xml'
+        testRunTitle: 'Weather API — QA'
+
+    - task: PublishBuildArtifacts@1
+      displayName: "Publish QA HTML report"
+      condition: always()
+      inputs:
+        PathtoPublish: 'newman'
+        ArtifactName: 'NewmanReports'
+        publishLocation: 'Container'
 
 # =========================
-# UAT
+# UAT (independent)
 # =========================
 - stage: UAT
   displayName: "UAT"
   dependsOn: []
   jobs:
-  - deployment: UAT_DeployAndValidate
-    displayName: "UAT: Deploy & Validate API"
-    environment: uat
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
-            displayName: "Checkout repository"
-
-          - task: NodeTool@0
-            inputs:
-              versionSpec: '18.x'
-            displayName: "Install Node.js 18.x"
-
-          - script: npm install -g newman newman-reporter-htmlextra
-            displayName: "Install Newman & reporters"
-
-          - script: |
-              set -e
-              mkdir -p newman
-              ENV_FILE="env/uat.postman_environment.json"
-              [ -f "${ENV_FILE}" ] || { echo "Missing ${ENV_FILE}"; exit 3; }
-
-              newman run collections/weatherstack.postman_collection.json \
-                --environment "${ENV_FILE}" \
-                --env-var access_key="$(WEATHERSTACK_KEY)" \
-                --env-var api_key="$(UAT_API_KEY)" \
-                --reporters cli,htmlextra,junit \
-                --reporter-htmlextra-export "newman/uat-report.html" \
-                --reporter-junit-export "newman/uat-results.xml"
-
-              {
-                echo "# WeatherStack API — UAT Validation"
-                echo "- JUnit: newman/uat-results.xml"
-                echo "- HTML: newman/uat-report.html"
-              } > newman/uat-summary.md
-
-              echo "##vso[task.uploadsummary]newman/uat-summary.md"
-            displayName: "Execute API validation (UAT)"
-            env:
-              WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
-              UAT_API_KEY: $(UAT_API_KEY)
-
-          - task: PublishTestResults@2
-            displayName: "Publish UAT test results"
-            condition: always()
-            inputs:
-              testResultsFormat: 'JUnit'
-              testResultsFiles: 'newman/uat-results.xml'
-              testRunTitle: 'WeatherStack API — UAT'
-              failTaskOnFailedTests: false
-
-          - task: PublishBuildArtifacts@1
-            displayName: "Publish UAT HTML report"
-            condition: always()
-            inputs:
-              PathtoPublish: 'newman'
-              ArtifactName: 'NewmanReports'
-              publishLocation: 'Container'
+  - job: UAT_FetchAndValidate
+    displayName: "UAT: Fetch Latest & Validate API"
+    steps:
+    - checkout: none
+    - script: sudo apt-get update && sudo apt-get install -y jq
+      displayName: "Install jq"
+    - script: |
+        set -e
+        mkdir -p collections env
+        curl --fail --silent --show-error \
+          --header "X-Api-Key: $(POSTMAN_API_KEY)" \
+          "https://api.getpostman.com/collections/$(COLLECTION_UID)" \
+          | jq -r '.collection' > collections/weatherstack.postman_collection.json
+        curl --fail --silent --show-error \
+          --header "X-Api-Key: $(POSTMAN_API_KEY)" \
+          "https://api.getpostman.com/environments/$(UAT_ENV_UID)" \
+          | jq -r '.environment' > env/uat.postman_environment.json
+        if [ -n "$(BASE_URL_UAT)" ]; then
+          jq '.values |= map(if .key=="base_url" then .value="$(BASE_URL_UAT)" else . end)' \
+            env/uat.postman_environment.json > env/uat.tmp && mv env/uat.tmp env/uat.postman_environment.json
+        fi
+        ls -la collections env
+      displayName: "Fetch latest collection & UAT environment"
+    - task: NodeTool@0
+      inputs: { versionSpec: '18.x' }
+      displayName: "Install Node.js 18.x"
+    - script: npm install -g newman newman-reporter-htmlextra
+      displayName: "Install Newman & reporters"
+    - script: |
+        set -e
+        mkdir -p newman
+        newman run collections/weatherstack.postman_collection.json \
+          --environment env/uat.postman_environment.json \
+          --env-var access_key="$(WEATHERSTACK_KEY)" \
+          --env-var api_key="$(UAT_API_KEY)" \
+          --reporters cli,htmlextra,junit \
+          --reporter-htmlextra-export "newman/uat-report.html" \
+          --reporter-junit-export "newman/uat-results.xml"
+        {
+          echo "# Weather API Tests — UAT"
+          echo "- JUnit: newman/uat-results.xml"
+          echo "- HTML: newman/uat-report.html"
+        } > newman/uat-summary.md
+        echo "##vso[task.uploadsummary]newman/uat-summary.md"
+      displayName: "Execute API validation (UAT)"
+      env:
+        POSTMAN_API_KEY: $(POSTMAN_API_KEY)
+        WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
+        UAT_API_KEY: $(UAT_API_KEY)
+        BASE_URL_UAT: $(BASE_URL_UAT)
+    - task: PublishTestResults@2
+      displayName: "Publish UAT test results"
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'newman/uat-results.xml'
+        testRunTitle: 'Weather API — UAT'
+    - task: PublishBuildArtifacts@1
+      displayName: "Publish UAT HTML report"
+      condition: always()
+      inputs:
+        PathtoPublish: 'newman'
+        ArtifactName: 'NewmanReports'
+        publishLocation: 'Container'
 
 # =========================
-# PROD
+# PROD (independent)
 # =========================
 - stage: PROD
   displayName: "PROD"
   dependsOn: []
   jobs:
-  - deployment: Prod_Deploy
-    displayName: "Prod: Deploy"
-    environment: prod
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
-            displayName: "Checkout repository"
-
-          - script: echo "Deploying to Production..."
-            displayName: "Execute deployment (PROD)"
+  - job: Prod_FetchAndValidate
+    displayName: "PROD: Fetch Latest & Validate API"
+    steps:
+    - checkout: none
+    - script: sudo apt-get update && sudo apt-get install -y jq
+      displayName: "Install jq"
+    - script: |
+        set -e
+        mkdir -p collections env
+        curl --fail --silent --show-error \
+          --header "X-Api-Key: $(POSTMAN_API_KEY)" \
+          "https://api.getpostman.com/collections/$(COLLECTION_UID)" \
+          | jq -r '.collection' > collections/weatherstack.postman_collection.json
+        curl --fail --silent --show-error \
+          --header "X-Api-Key: $(POSTMAN_API_KEY)" \
+          "https://api.getpostman.com/environments/$(PROD_ENV_UID)" \
+          | jq -r '.environment' > env/prod.postman_environment.json
+        if [ -n "$(BASE_URL_PROD)" ]; then
+          jq '.values |= map(if .key=="base_url" then .value="$(BASE_URL_PROD)" else . end)' \
+            env/prod.postman_environment.json > env/prod.tmp && mv env/prod.tmp env/prod.postman_environment.json
+        fi
+        ls -la collections env
+      displayName: "Fetch latest collection & PROD environment"
+    - task: NodeTool@0
+      inputs: { versionSpec: '18.x' }
+      displayName: "Install Node.js 18.x"
+    - script: npm install -g newman newman-reporter-htmlextra
+      displayName: "Install Newman & reporters"
+    - script: |
+        set -e
+        mkdir -p newman
+        newman run collections/weatherstack.postman_collection.json \
+          --environment env/prod.postman_environment.json \
+          --env-var access_key="$(WEATHERSTACK_KEY)" \
+          --env-var api_key="$(PROD_API_KEY)" \
+          --reporters cli,htmlextra,junit \
+          --reporter-htmlextra-export "newman/prod-report.html" \
+          --reporter-junit-export "newman/prod-results.xml"
+        {
+          echo "# Weather API Tests — PROD"
+          echo "- JUnit: newman/prod-results.xml"
+          echo "- HTML: newman/prod-report.html"
+        } > newman/prod-summary.md
+        echo "##vso[task.uploadsummary]newman/prod-summary.md"
+      displayName: "Execute API validation (PROD)"
+      env:
+        POSTMAN_API_KEY: $(POSTMAN_API_KEY)
+        WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
+        PROD_API_KEY: $(PROD_API_KEY)
+        BASE_URL_PROD: $(BASE_URL_PROD)
+    - task: PublishTestResults@2
+      displayName: "Publish PROD test results"
+      condition: always()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'newman/prod-results.xml'
+        testRunTitle: 'Weather API — PROD'
+    - task: PublishBuildArtifacts@1
+      displayName: "Publish PROD HTML report"
+      condition: always()
+      inputs:
+        PathtoPublish: 'newman'
+        ArtifactName: 'NewmanReports'
+        publishLocation: 'Container'
