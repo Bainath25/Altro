@@ -2,6 +2,7 @@
 trigger:
 - main
 
+# If you are using variable groups, ensure the name matches exactly
 variables:
 - group: WeatherStackSecrets
 
@@ -16,16 +17,49 @@ steps:
 
 - script: |
     npm install -g newman newman-reporter-htmlextra
+    mkdir -p newman
     newman run collections/weatherstack.postman_collection.json \
       --environment env/weatherstack_env.json \
-      --reporters cli,htmlextra \
-      --reporter-htmlextra-export newman/report.html
+      --reporters cli,htmlextra,junit \
+      --reporter-htmlextra-export newman/report.html \
+      --reporter-junit-export newman/results.xml
   displayName: 'Run WeatherStack API Test'
   env:
     access_key: $(WEATHERSTACK_KEY)
 
+# ✅ Publish JUnit to Tests tab
+- task: PublishTestResults@2
+  displayName: 'Publish JUnit test results to Tests tab'
+  condition: always()            # publish even if Newman fails
+  inputs:
+    testResultsFormat: 'JUnit'
+    testResultsFiles: 'newman/results.xml'
+    testRunTitle: 'WeatherStack API Tests'
+    failTaskOnFailedTests: false  # keep pipeline readable; overall job already fails on test failures
+
+# ✅ Publish HTML report as artifact
 - task: PublishBuildArtifacts@1
+  displayName: 'Publish Newman HTML report'
+  condition: always()
   inputs:
     PathtoPublish: 'newman'
-    ArtifactName: 'WeatherStackReport'
+    ArtifactName: 'NewmanReports'
     publishLocation: 'Container'
+
+# ✅ Optional: Add a summary with a link to the artifact for quick access
+- script: |
+    echo "# Newman Reports" > newman/summary.md
+    echo "" >> newman/summary.md
+    echo "- The detailed HTML report (htmlextra) is published under **Artifacts → NewmanReports → report.html**." >> newman/summary.md
+    echo "- JUnit XML (**results.xml**) is published to the Tests tab." >> newman/summary.md
+    echo "" >> newman/summary.md
+    echo "If the job failed, scroll up to the **Errors** section to see the failing assertion." >> newman/summary.md
+    echo "Open **Tests** tab for pass/fail and test counts." >> newman/summary.md
+    echo "Open **Artifacts** to download the HTML report." >> newman/summary.md
+    echo " " >> newman/summary.md
+    echo "Tip: To keep runs green but still record failures, set Newman exit code handling or disable fail-on-error." >> newman/summary.md
+
+    # Upload summary to the run
+    echo "##vso[task.uploadsummary]newman/summary.md"
+  displayName: 'Attach run summary with report instructions'
+  condition: always()
