@@ -1,37 +1,45 @@
 
-trigger: none   # manual runs only
+trigger: none   # manual runs only; change to - main if you want CI
 
 pool:
   vmImage: 'ubuntu-latest'
 
+# One variable group containing all secrets.
 variables:
 - group: WeatherStackSecrets
 
 stages:
-# -------------------------
-# Dev (independent)
-# -------------------------
-- stage: Dev
-  displayName: "Dev"
-  dependsOn: []             # explicitly no dependency
+# =========================
+# DEV
+# =========================
+- stage: DEV
+  displayName: "DEV"
+  dependsOn: []
   jobs:
-  - deployment: DeployDev
-    displayName: "Run tests & deploy — Dev"
-    environment: dev        # remove if you don't use Environments/approvals
+  - deployment: Dev_DeployAndValidate
+    displayName: "Dev: Build, Deploy & Validate API"
+    environment: dev
     strategy:
       runOnce:
         deploy:
           steps:
+          - checkout: self
+            displayName: "Checkout repository"
+
           - task: NodeTool@0
-            inputs: { versionSpec: '18.x' }
-            displayName: 'Install Node.js'
+            inputs:
+              versionSpec: '18.x'
+            displayName: "Install Node.js 18.x"
+
           - script: npm install -g newman newman-reporter-htmlextra
-            displayName: 'Install Newman'
+            displayName: "Install Newman & reporters"
+
           - script: |
               set -e
               mkdir -p newman
               ENV_FILE="env/dev.postman_environment.json"
               [ -f "${ENV_FILE}" ] || { echo "Missing ${ENV_FILE}"; exit 3; }
+
               newman run collections/weatherstack.postman_collection.json \
                 --environment "${ENV_FILE}" \
                 --env-var access_key="$(WEATHERSTACK_KEY)" \
@@ -39,45 +47,67 @@ stages:
                 --reporters cli,htmlextra,junit \
                 --reporter-htmlextra-export "newman/dev-report.html" \
                 --reporter-junit-export "newman/dev-results.xml"
-            displayName: 'Run Newman (Dev)'
+
+              {
+                echo "# WeatherStack API — DEV Validation"
+                echo "- JUnit: newman/dev-results.xml"
+                echo "- HTML: newman/dev-report.html"
+              } > newman/dev-summary.md
+
+              echo "##vso[task.uploadsummary]newman/dev-summary.md"
+            displayName: "Execute API validation (DEV)"
             env:
               WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
               DEV_API_KEY: $(DEV_API_KEY)
+
           - task: PublishTestResults@2
+            displayName: "Publish DEV test results"
+            condition: always()
             inputs:
               testResultsFormat: 'JUnit'
               testResultsFiles: 'newman/dev-results.xml'
-              testRunTitle: 'WeatherStack API — Dev'
-            condition: always()
+              testRunTitle: 'WeatherStack API — DEV'
+              failTaskOnFailedTests: false
+
           - task: PublishBuildArtifacts@1
+            displayName: "Publish DEV HTML report"
+            condition: always()
             inputs:
               PathtoPublish: 'newman'
               ArtifactName: 'NewmanReports'
               publishLocation: 'Container'
-            condition: always()
 
-# -------------------------
-# QA (independent)
-# -------------------------
+# =========================
+# QA
+# =========================
 - stage: QA
   displayName: "QA"
-  dependsOn: []             # make QA independent
+  dependsOn: []
   jobs:
-  - deployment: DeployQA
-    displayName: "Run tests & deploy — QA"
+  - deployment: QA_DeployAndValidate
+    displayName: "QA: Deploy & Validate API"
     environment: qa
     strategy:
       runOnce:
         deploy:
           steps:
+          - checkout: self
+            displayName: "Checkout repository"
+
           - task: NodeTool@0
-            inputs: { versionSpec: '18.x' }
+            inputs:
+              versionSpec: '18.x'
+            displayName: "Install Node.js 18.x"
+
           - script: npm install -g newman newman-reporter-htmlextra
+            displayName: "Install Newman & reporters"
+
           - script: |
               set -e
               mkdir -p newman
               ENV_FILE="env/qa.postman_environment.json"
               [ -f "${ENV_FILE}" ] || { echo "Missing ${ENV_FILE}"; exit 3; }
+
               newman run collections/weatherstack.postman_collection.json \
                 --environment "${ENV_FILE}" \
                 --env-var access_key="$(WEATHERSTACK_KEY)" \
@@ -85,44 +115,67 @@ stages:
                 --reporters cli,htmlextra,junit \
                 --reporter-htmlextra-export "newman/qa-report.html" \
                 --reporter-junit-export "newman/qa-results.xml"
+
+              {
+                echo "# WeatherStack API — QA Validation"
+                echo "- JUnit: newman/qa-results.xml"
+                echo "- HTML: newman/qa-report.html"
+              } > newman/qa-summary.md
+
+              echo "##vso[task.uploadsummary]newman/qa-summary.md"
+            displayName: "Execute API validation (QA)"
             env:
               WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
               QA_API_KEY: $(QA_API_KEY)
+
           - task: PublishTestResults@2
+            displayName: "Publish QA test results"
+            condition: always()
             inputs:
               testResultsFormat: 'JUnit'
               testResultsFiles: 'newman/qa-results.xml'
               testRunTitle: 'WeatherStack API — QA'
-            condition: always()
+              failTaskOnFailedTests: false
+
           - task: PublishBuildArtifacts@1
+            displayName: "Publish QA HTML report"
+            condition: always()
             inputs:
               PathtoPublish: 'newman'
               ArtifactName: 'NewmanReports'
               publishLocation: 'Container'
-            condition: always()
 
-# -------------------------
-# UAT (independent)
-# -------------------------
+# =========================
+# UAT
+# =========================
 - stage: UAT
   displayName: "UAT"
-  dependsOn: []             # independent
+  dependsOn: []
   jobs:
-  - deployment: DeployUAT
-    displayName: "Run tests & deploy — UAT"
+  - deployment: UAT_DeployAndValidate
+    displayName: "UAT: Deploy & Validate API"
     environment: uat
     strategy:
       runOnce:
         deploy:
           steps:
+          - checkout: self
+            displayName: "Checkout repository"
+
           - task: NodeTool@0
-            inputs: { versionSpec: '18.x' }
+            inputs:
+              versionSpec: '18.x'
+            displayName: "Install Node.js 18.x"
+
           - script: npm install -g newman newman-reporter-htmlextra
+            displayName: "Install Newman & reporters"
+
           - script: |
               set -e
               mkdir -p newman
               ENV_FILE="env/uat.postman_environment.json"
               [ -f "${ENV_FILE}" ] || { echo "Missing ${ENV_FILE}"; exit 3; }
+
               newman run collections/weatherstack.postman_collection.json \
                 --environment "${ENV_FILE}" \
                 --env-var access_key="$(WEATHERSTACK_KEY)" \
@@ -130,35 +183,52 @@ stages:
                 --reporters cli,htmlextra,junit \
                 --reporter-htmlextra-export "newman/uat-report.html" \
                 --reporter-junit-export "newman/uat-results.xml"
+
+              {
+                echo "# WeatherStack API — UAT Validation"
+                echo "- JUnit: newman/uat-results.xml"
+                echo "- HTML: newman/uat-report.html"
+              } > newman/uat-summary.md
+
+              echo "##vso[task.uploadsummary]newman/uat-summary.md"
+            displayName: "Execute API validation (UAT)"
             env:
               WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
               UAT_API_KEY: $(UAT_API_KEY)
+
           - task: PublishTestResults@2
+            displayName: "Publish UAT test results"
+            condition: always()
             inputs:
               testResultsFormat: 'JUnit'
               testResultsFiles: 'newman/uat-results.xml'
               testRunTitle: 'WeatherStack API — UAT'
-            condition: always()
+              failTaskOnFailedTests: false
+
           - task: PublishBuildArtifacts@1
+            displayName: "Publish UAT HTML report"
+            condition: always()
             inputs:
               PathtoPublish: 'newman'
               ArtifactName: 'NewmanReports'
               publishLocation: 'Container'
-            condition: always()
 
-# -------------------------
-# Prod (independent)
-# -------------------------
-- stage: Prod
-  displayName: "Prod"
-  dependsOn: []             # independent
+# =========================
+# PROD
+# =========================
+- stage: PROD
+  displayName: "PROD"
+  dependsOn: []
   jobs:
-  - deployment: DeployProd
-    displayName: "Deploy — Prod"
+  - deployment: Prod_Deploy
+    displayName: "Prod: Deploy"
     environment: prod
     strategy:
       runOnce:
         deploy:
           steps:
+          - checkout: self
+            displayName: "Checkout repository"
+
           - script: echo "Deploying to Production..."
-            displayName: 'Deploy (Prod)'
+            displayName: "Execute deployment (PROD)"
