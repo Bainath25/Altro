@@ -1,10 +1,9 @@
+
 trigger:
 - main
 
-
 variables:
-- group: WeatherStackSecret
-
+- group: WeatherStackSecrets
 
 pool:
   vmImage: 'ubuntu-latest'
