@@ -8,6 +8,12 @@ pool:
 # Single secure variable group for all envs
 variables:
 - group: WeatherStackSecrets
+# Expected secrets (in the variable group):
+# POSTMAN_API_KEY, COLLECTION_UID
+# DEV_ENV_UID, QA_ENV_UID, UAT_ENV_UID, PROD_ENV_UID
+# WEATHERSTACK_KEY
+# DEV_API_KEY, QA_API_KEY, UAT_API_KEY, PROD_API_KEY
+# BASE_URL_DEV, BASE_URL_QA, BASE_URL_UAT, BASE_URL_PROD (optional overrides)
 
 stages:
 # =========================
@@ -59,9 +65,11 @@ stages:
       displayName: "Install Newman & reporters"
 
     - script: |
-        set -e
+        # Create report folder
         mkdir -p newman
 
+        # Run newman but always continue to write/upload summary
+        set +e
         newman run collections/weatherstack.postman_collection.json \
           --environment env/dev.postman_environment.json \
           --env-var access_key="$(WEATHERSTACK_KEY)" \
@@ -69,13 +77,22 @@ stages:
           --reporters cli,htmlextra,junit \
           --reporter-htmlextra-export "newman/dev-report.html" \
           --reporter-junit-export "newman/dev-results.xml"
+        NEWMAN_EXIT=$?
+        set -e
 
         {
           echo "# Weather API Tests — DEV"
+          echo ""
+          echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/dev-results.xml"
           echo "- HTML: newman/dev-report.html"
         } > newman/dev-summary.md
-        echo "##vso[task.uploadsummary]newman/dev-summary.md"
+
+        SUMMARY_PATH="$(pwd)/newman/dev-summary.md"
+        echo "##vso[task.uploadsummary]$SUMMARY_PATH"
+
+        # Exit with newman's code so the job reflects pass/fail
+        exit $NEWMAN_EXIT
       displayName: "Execute API validation (DEV)"
       env:
         POSTMAN_API_KEY: $(POSTMAN_API_KEY)
@@ -147,9 +164,9 @@ stages:
       displayName: "Install Newman & reporters"
 
     - script: |
-        set -e
         mkdir -p newman
 
+        set +e
         newman run collections/weatherstack.postman_collection.json \
           --environment env/qa.postman_environment.json \
           --env-var access_key="$(WEATHERSTACK_KEY)" \
@@ -157,13 +174,21 @@ stages:
           --reporters cli,htmlextra,junit \
           --reporter-htmlextra-export "newman/qa-report.html" \
           --reporter-junit-export "newman/qa-results.xml"
+        NEWMAN_EXIT=$?
+        set -e
 
         {
           echo "# Weather API Tests — QA"
+          echo ""
+          echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/qa-results.xml"
           echo "- HTML: newman/qa-report.html"
         } > newman/qa-summary.md
-        echo "##vso[task.uploadsummary]newman/qa-summary.md"
+
+        SUMMARY_PATH="$(pwd)/newman/qa-summary.md"
+        echo "##vso[task.uploadsummary]$SUMMARY_PATH"
+
+        exit $NEWMAN_EXIT
       displayName: "Execute API validation (QA)"
       env:
         POSTMAN_API_KEY: $(POSTMAN_API_KEY)
@@ -198,33 +223,46 @@ stages:
     displayName: "UAT: Fetch Latest & Validate API"
     steps:
     - checkout: none
+
     - script: sudo apt-get update && sudo apt-get install -y jq
       displayName: "Install jq"
+
     - script: |
         set -e
         mkdir -p collections env
+
+        echo "Downloading latest Postman collection (secure header)..."
         curl --fail --silent --show-error \
           --header "X-Api-Key: $(POSTMAN_API_KEY)" \
           "https://api.getpostman.com/collections/$(COLLECTION_UID)" \
           | jq -r '.collection' > collections/weatherstack.postman_collection.json
+
+        echo "Downloading latest UAT environment (secure header)..."
         curl --fail --silent --show-error \
           --header "X-Api-Key: $(POSTMAN_API_KEY)" \
           "https://api.getpostman.com/environments/$(UAT_ENV_UID)" \
           | jq -r '.environment' > env/uat.postman_environment.json
+
         if [ -n "$(BASE_URL_UAT)" ]; then
           jq '.values |= map(if .key=="base_url" then .value="$(BASE_URL_UAT)" else . end)' \
             env/uat.postman_environment.json > env/uat.tmp && mv env/uat.tmp env/uat.postman_environment.json
         fi
+
         ls -la collections env
       displayName: "Fetch latest collection & UAT environment"
+
     - task: NodeTool@0
-      inputs: { versionSpec: '18.x' }
+      inputs:
+        versionSpec: '18.x'
       displayName: "Install Node.js 18.x"
+
     - script: npm install -g newman newman-reporter-htmlextra
       displayName: "Install Newman & reporters"
+
     - script: |
-        set -e
         mkdir -p newman
+
+        set +e
         newman run collections/weatherstack.postman_collection.json \
           --environment env/uat.postman_environment.json \
           --env-var access_key="$(WEATHERSTACK_KEY)" \
@@ -232,18 +270,28 @@ stages:
           --reporters cli,htmlextra,junit \
           --reporter-htmlextra-export "newman/uat-report.html" \
           --reporter-junit-export "newman/uat-results.xml"
+        NEWMAN_EXIT=$?
+        set -e
+
         {
           echo "# Weather API Tests — UAT"
+          echo ""
+          echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/uat-results.xml"
           echo "- HTML: newman/uat-report.html"
         } > newman/uat-summary.md
-        echo "##vso[task.uploadsummary]newman/uat-summary.md"
+
+        SUMMARY_PATH="$(pwd)/newman/uat-summary.md"
+        echo "##vso[task.uploadsummary]$SUMMARY_PATH"
+
+        exit $NEWMAN_EXIT
       displayName: "Execute API validation (UAT)"
       env:
         POSTMAN_API_KEY: $(POSTMAN_API_KEY)
         WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
         UAT_API_KEY: $(UAT_API_KEY)
         BASE_URL_UAT: $(BASE_URL_UAT)
+
     - task: PublishTestResults@2
       displayName: "Publish UAT test results"
       condition: always()
@@ -251,6 +299,7 @@ stages:
         testResultsFormat: 'JUnit'
         testResultsFiles: 'newman/uat-results.xml'
         testRunTitle: 'Weather API — UAT'
+
     - task: PublishBuildArtifacts@1
       displayName: "Publish UAT HTML report"
       condition: always()
@@ -270,33 +319,46 @@ stages:
     displayName: "PROD: Fetch Latest & Validate API"
     steps:
     - checkout: none
+
     - script: sudo apt-get update && sudo apt-get install -y jq
       displayName: "Install jq"
+
     - script: |
         set -e
         mkdir -p collections env
+
+        echo "Downloading latest Postman collection (secure header)..."
         curl --fail --silent --show-error \
           --header "X-Api-Key: $(POSTMAN_API_KEY)" \
           "https://api.getpostman.com/collections/$(COLLECTION_UID)" \
           | jq -r '.collection' > collections/weatherstack.postman_collection.json
+
+        echo "Downloading latest PROD environment (secure header)..."
         curl --fail --silent --show-error \
           --header "X-Api-Key: $(POSTMAN_API_KEY)" \
           "https://api.getpostman.com/environments/$(PROD_ENV_UID)" \
           | jq -r '.environment' > env/prod.postman_environment.json
+
         if [ -n "$(BASE_URL_PROD)" ]; then
           jq '.values |= map(if .key=="base_url" then .value="$(BASE_URL_PROD)" else . end)' \
             env/prod.postman_environment.json > env/prod.tmp && mv env/prod.tmp env/prod.postman_environment.json
         fi
+
         ls -la collections env
       displayName: "Fetch latest collection & PROD environment"
+
     - task: NodeTool@0
-      inputs: { versionSpec: '18.x' }
+      inputs:
+        versionSpec: '18.x'
       displayName: "Install Node.js 18.x"
+
     - script: npm install -g newman newman-reporter-htmlextra
       displayName: "Install Newman & reporters"
+
     - script: |
-        set -e
         mkdir -p newman
+
+        set +e
         newman run collections/weatherstack.postman_collection.json \
           --environment env/prod.postman_environment.json \
           --env-var access_key="$(WEATHERSTACK_KEY)" \
@@ -304,18 +366,28 @@ stages:
           --reporters cli,htmlextra,junit \
           --reporter-htmlextra-export "newman/prod-report.html" \
           --reporter-junit-export "newman/prod-results.xml"
+        NEWMAN_EXIT=$?
+        set -e
+
         {
           echo "# Weather API Tests — PROD"
+          echo ""
+          echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/prod-results.xml"
           echo "- HTML: newman/prod-report.html"
         } > newman/prod-summary.md
-        echo "##vso[task.uploadsummary]newman/prod-summary.md"
+
+        SUMMARY_PATH="$(pwd)/newman/prod-summary.md"
+        echo "##vso[task.uploadsummary]$SUMMARY_PATH"
+
+        exit $NEWMAN_EXIT
       displayName: "Execute API validation (PROD)"
       env:
         POSTMAN_API_KEY: $(POSTMAN_API_KEY)
         WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
         PROD_API_KEY: $(PROD_API_KEY)
         BASE_URL_PROD: $(BASE_URL_PROD)
+
     - task: PublishTestResults@2
       displayName: "Publish PROD test results"
       condition: always()
@@ -323,6 +395,7 @@ stages:
         testResultsFormat: 'JUnit'
         testResultsFiles: 'newman/prod-results.xml'
         testRunTitle: 'Weather API — PROD'
+
     - task: PublishBuildArtifacts@1
       displayName: "Publish PROD HTML report"
       condition: always()
