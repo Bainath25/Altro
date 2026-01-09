@@ -8,6 +8,12 @@ pool:
 # Single secure variable group for all envs
 variables:
 - group: WeatherStackSecrets
+# Expected secrets:
+# POSTMAN_API_KEY, COLLECTION_UID
+# DEV_ENV_UID, QA_ENV_UID, UAT_ENV_UID, PROD_ENV_UID
+# WEATHERSTACK_KEY
+# DEV_API_KEY, QA_API_KEY, UAT_API_KEY, PROD_API_KEY
+# BASE_URL_DEV, BASE_URL_QA, BASE_URL_UAT, BASE_URL_PROD (optional)
 
 stages:
 # =========================
@@ -41,17 +47,15 @@ stages:
           "https://api.getpostman.com/environments/$(DEV_ENV_UID)" \
           | jq -r '.environment' > env/dev.postman_environment.json
 
-        # Optional: override base_url at runtime if you prefer
+        # Optional base_url override
         if [ -n "$(BASE_URL_DEV)" ]; then
           jq '.values |= map(if .key=="base_url" then .value="$(BASE_URL_DEV)" else . end)' \
             env/dev.postman_environment.json > env/dev.tmp && mv env/dev.tmp env/dev.postman_environment.json
         fi
 
-        # Extract collection name for htmlextra title and expose as pipeline variable
+        # Extract collection name for htmlextra title
         COLLECTION_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
-        echo "Collection name detected: $COLLECTION_NAME"
         echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$COLLECTION_NAME"
-
         ls -la collections env
       displayName: "Fetch latest collection & DEV environment"
       env:
@@ -83,6 +87,15 @@ stages:
         NEWMAN_EXIT=$?
         set -e
 
+        # Verify files exist
+        ls -la newman
+        test -s newman/dev-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
+        test -s newman/dev-overview.html || { echo "overview report missing"; exit 1; }
+
+        # Attach HTML files to the job (visible under Attachments)
+        echo "##vso[task.uploadfile]$(pwd)/newman/dev-htmlextra.html"
+        echo "##vso[task.uploadfile]$(pwd)/newman/dev-overview.html"
+
         {
           echo "# Weather API Tests — DEV"
           echo ""
@@ -92,10 +105,7 @@ stages:
           echo "- HTML (overview): newman/dev-overview.html"
         } > newman/dev-summary.md
 
-        SUMMARY_PATH="$(pwd)/newman/dev-summary.md"
-        echo "##vso[task.uploadsummary]$SUMMARY_PATH"
-
-        # Exit with newman's code so the job reflects pass/fail
+        echo "##vso[task.uploadsummary]$(pwd)/newman/dev-summary.md"
         exit $NEWMAN_EXIT
       displayName: "Execute API validation (DEV)"
       env:
@@ -111,13 +121,13 @@ stages:
         testResultsFiles: 'newman/dev-results.xml'
         testRunTitle: 'Weather API — DEV'
 
-    - task: PublishBuildArtifacts@1
-      displayName: "Publish DEV HTML reports"
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish DEV Pipeline Artifact (NewmanReports)"
       condition: always()
       inputs:
-        PathtoPublish: 'newman'
-        ArtifactName: 'NewmanReports'
-        publishLocation: 'Container'
+        targetPath: 'newman'
+        artifact: 'NewmanReports-DEV'
+        publishLocation: 'pipeline'
 
 # =========================
 # QA (independent)
@@ -156,9 +166,7 @@ stages:
         fi
 
         COLLECTION_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
-        echo "Collection name detected: $COLLECTION_NAME"
         echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$COLLECTION_NAME"
-
         ls -la collections env
       displayName: "Fetch latest collection & QA environment"
       env:
@@ -189,6 +197,13 @@ stages:
         NEWMAN_EXIT=$?
         set -e
 
+        ls -la newman
+        test -s newman/qa-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
+        test -s newman/qa-overview.html || { echo "overview report missing"; exit 1; }
+
+        echo "##vso[task.uploadfile]$(pwd)/newman/qa-htmlextra.html"
+        echo "##vso[task.uploadfile]$(pwd)/newman/qa-overview.html"
+
         {
           echo "# Weather API Tests — QA"
           echo ""
@@ -198,9 +213,7 @@ stages:
           echo "- HTML (overview): newman/qa-overview.html"
         } > newman/qa-summary.md
 
-        SUMMARY_PATH="$(pwd)/newman/qa-summary.md"
-        echo "##vso[task.uploadsummary]$SUMMARY_PATH"
-
+        echo "##vso[task.uploadsummary]$(pwd)/newman/qa-summary.md"
         exit $NEWMAN_EXIT
       displayName: "Execute API validation (QA)"
       env:
@@ -216,13 +229,13 @@ stages:
         testResultsFiles: 'newman/qa-results.xml'
         testRunTitle: 'Weather API — QA'
 
-    - task: PublishBuildArtifacts@1
-      displayName: "Publish QA HTML reports"
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish QA Pipeline Artifact (NewmanReports)"
       condition: always()
       inputs:
-        PathtoPublish: 'newman'
-        ArtifactName: 'NewmanReports'
-        publishLocation: 'Container'
+        targetPath: 'newman'
+        artifact: 'NewmanReports-QA'
+        publishLocation: 'pipeline'
 
 # =========================
 # UAT (independent)
@@ -235,7 +248,6 @@ stages:
     displayName: "UAT: Fetch Latest & Validate API"
     steps:
     - checkout: none
-
     - script: sudo apt-get update && sudo apt-get install -y jq
       displayName: "Install jq"
 
@@ -243,13 +255,11 @@ stages:
         set -e
         mkdir -p collections env
 
-        echo "Downloading latest Postman collection (secure header)..."
         curl --fail --silent --show-error \
           --header "X-Api-Key: $(POSTMAN_API_KEY)" \
           "https://api.getpostman.com/collections/$(COLLECTION_UID)" \
           | jq -r '.collection' > collections/weatherstack.postman_collection.json
 
-        echo "Downloading latest UAT environment (secure header)..."
         curl --fail --silent --show-error \
           --header "X-Api-Key: $(POSTMAN_API_KEY)" \
           "https://api.getpostman.com/environments/$(UAT_ENV_UID)" \
@@ -261,9 +271,7 @@ stages:
         fi
 
         COLLECTION_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
-        echo "Collection name detected: $COLLECTION_NAME"
         echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$COLLECTION_NAME"
-
         ls -la collections env
       displayName: "Fetch latest collection & UAT environment"
       env:
@@ -271,8 +279,7 @@ stages:
         BASE_URL_UAT: $(BASE_URL_UAT)
 
     - task: NodeTool@0
-      inputs:
-        versionSpec: '18.x'
+      inputs: { versionSpec: '18.x' }
       displayName: "Install Node.js 18.x"
 
     - script: npm install -g newman newman-reporter-htmlextra newman-reporter-html
@@ -280,7 +287,6 @@ stages:
 
     - script: |
         mkdir -p newman
-
         set +e
         newman run collections/weatherstack.postman_collection.json \
           --environment env/uat.postman_environment.json \
@@ -294,6 +300,13 @@ stages:
         NEWMAN_EXIT=$?
         set -e
 
+        ls -la newman
+        test -s newman/uat-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
+        test -s newman/uat-overview.html || { echo "overview report missing"; exit 1; }
+
+        echo "##vso[task.uploadfile]$(pwd)/newman/uat-htmlextra.html"
+        echo "##vso[task.uploadfile]$(pwd)/newman/uat-overview.html"
+
         {
           echo "# Weather API Tests — UAT"
           echo ""
@@ -303,9 +316,7 @@ stages:
           echo "- HTML (overview): newman/uat-overview.html"
         } > newman/uat-summary.md
 
-        SUMMARY_PATH="$(pwd)/newman/uat-summary.md"
-        echo "##vso[task.uploadsummary]$SUMMARY_PATH"
-
+        echo "##vso[task.uploadsummary]$(pwd)/newman/uat-summary.md"
         exit $NEWMAN_EXIT
       displayName: "Execute API validation (UAT)"
       env:
@@ -321,13 +332,13 @@ stages:
         testResultsFiles: 'newman/uat-results.xml'
         testRunTitle: 'Weather API — UAT'
 
-    - task: PublishBuildArtifacts@1
-      displayName: "Publish UAT HTML reports"
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish UAT Pipeline Artifact (NewmanReports)"
       condition: always()
       inputs:
-        PathtoPublish: 'newman'
-        ArtifactName: 'NewmanReports'
-        publishLocation: 'Container'
+        targetPath: 'newman'
+        artifact: 'NewmanReports-UAT'
+        publishLocation: 'pipeline'
 
 # =========================
 # PROD (independent)
@@ -340,21 +351,17 @@ stages:
     displayName: "PROD: Fetch Latest & Validate API"
     steps:
     - checkout: none
-
     - script: sudo apt-get update && sudo apt-get install -y jq
       displayName: "Install jq"
 
     - script: |
         set -e
         mkdir -p collections env
-
-        echo "Downloading latest Postman collection (secure header)..."
         curl --fail --silent --show-error \
           --header "X-Api-Key: $(POSTMAN_API_KEY)" \
           "https://api.getpostman.com/collections/$(COLLECTION_UID)" \
           | jq -r '.collection' > collections/weatherstack.postman_collection.json
 
-        echo "Downloading latest PROD environment (secure header)..."
         curl --fail --silent --show-error \
           --header "X-Api-Key: $(POSTMAN_API_KEY)" \
           "https://api.getpostman.com/environments/$(PROD_ENV_UID)" \
@@ -366,9 +373,7 @@ stages:
         fi
 
         COLLECTION_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
-        echo "Collection name detected: $COLLECTION_NAME"
         echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$COLLECTION_NAME"
-
         ls -la collections env
       displayName: "Fetch latest collection & PROD environment"
       env:
@@ -376,8 +381,7 @@ stages:
         BASE_URL_PROD: $(BASE_URL_PROD)
 
     - task: NodeTool@0
-      inputs:
-        versionSpec: '18.x'
+      inputs: { versionSpec: '18.x' }
       displayName: "Install Node.js 18.x"
 
     - script: npm install -g newman newman-reporter-htmlextra newman-reporter-html
@@ -385,7 +389,6 @@ stages:
 
     - script: |
         mkdir -p newman
-
         set +e
         newman run collections/weatherstack.postman_collection.json \
           --environment env/prod.postman_environment.json \
@@ -399,6 +402,13 @@ stages:
         NEWMAN_EXIT=$?
         set -e
 
+        ls -la newman
+        test -s newman/prod-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
+        test -s newman/prod-overview.html || { echo "overview report missing"; exit 1; }
+
+        echo "##vso[task.uploadfile]$(pwd)/newman/prod-htmlextra.html"
+        echo "##vso[task.uploadfile]$(pwd)/newman/prod-overview.html"
+
         {
           echo "# Weather API Tests — PROD"
           echo ""
@@ -408,9 +418,7 @@ stages:
           echo "- HTML (overview): newman/prod-overview.html"
         } > newman/prod-summary.md
 
-        SUMMARY_PATH="$(pwd)/newman/prod-summary.md"
-        echo "##vso[task.uploadsummary]$SUMMARY_PATH"
-
+        echo "##vso[task.uploadsummary]$(pwd)/newman/prod-summary.md"
         exit $NEWMAN_EXIT
       displayName: "Execute API validation (PROD)"
       env:
@@ -426,10 +434,10 @@ stages:
         testResultsFiles: 'newman/prod-results.xml'
         testRunTitle: 'Weather API — PROD'
 
-    - task: PublishBuildArtifacts@1
-      displayName: "Publish PROD HTML reports"
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish PROD Pipeline Artifact (NewmanReports)"
       condition: always()
       inputs:
-        PathtoPublish: 'newman'
-        ArtifactName: 'NewmanReports'
-        publishLocation: 'Container'
+        targetPath: 'newman'
+        artifact: 'NewmanReports-PROD'
+        publishLocation: 'pipeline'
