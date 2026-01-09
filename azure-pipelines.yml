@@ -67,8 +67,8 @@ stages:
         versionSpec: '18.x'
       displayName: "Install Node.js 18.x"
 
-    - script: npm install -g newman newman-reporter-htmlextra newman-reporter-html
-      displayName: "Install Newman & reporters (htmlextra + html)"
+    - script: npm install -g newman newman-reporter-htmlextra
+      displayName: "Install Newman & htmlextra reporter"
 
     - script: |
         mkdir -p newman
@@ -79,10 +79,10 @@ stages:
           --environment env/dev.postman_environment.json \
           --env-var access_key="$(WEATHERSTACK_KEY)" \
           --env-var api_key="$(DEV_API_KEY)" \
-          --reporters cli,htmlextra,html,junit \
+          --reporters cli,htmlextra,junit \
           --reporter-htmlextra-export "newman/dev-htmlextra.html" \
           --reporter-htmlextra-title "$(HTMLEXTRA_TITLE)" \
-          --reporter-html-export "newman/dev-overview.html" \
+          --reporter-htmlextra-omitHeaders \
           --reporter-junit-export "newman/dev-results.xml"
         NEWMAN_EXIT=$?
         set -e
@@ -90,19 +90,16 @@ stages:
         # Verify files exist
         ls -la newman
         test -s newman/dev-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
-        test -s newman/dev-overview.html || { echo "overview report missing"; exit 1; }
 
-        # Attach HTML files to the job (visible under Attachments)
+        # Attach HTML file to the job (visible under Attachments)
         echo "##vso[task.uploadfile]$(pwd)/newman/dev-htmlextra.html"
-        echo "##vso[task.uploadfile]$(pwd)/newman/dev-overview.html"
 
         {
           echo "# Weather API Tests — DEV"
           echo ""
           echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/dev-results.xml"
-          echo "- HTML (htmlextra): newman/dev-htmlextra.html"
-          echo "- HTML (overview): newman/dev-overview.html"
+          echo "- HTML (htmlextra): newman/dev-htmlextra.html (headers omitted)"
         } > newman/dev-summary.md
 
         echo "##vso[task.uploadsummary]$(pwd)/newman/dev-summary.md"
@@ -178,8 +175,8 @@ stages:
         versionSpec: '18.x'
       displayName: "Install Node.js 18.x"
 
-    - script: npm install -g newman newman-reporter-htmlextra newman-reporter-html
-      displayName: "Install Newman & reporters (htmlextra + html)"
+    - script: npm install -g newman newman-reporter-htmlextra
+      displayName: "Install Newman & htmlextra reporter"
 
     - script: |
         mkdir -p newman
@@ -189,28 +186,25 @@ stages:
           --environment env/qa.postman_environment.json \
           --env-var access_key="$(WEATHERSTACK_KEY)" \
           --env-var api_key="$(QA_API_KEY)" \
-          --reporters cli,htmlextra,html,junit \
+          --reporters cli,htmlextra,junit \
           --reporter-htmlextra-export "newman/qa-htmlextra.html" \
           --reporter-htmlextra-title "$(HTMLEXTRA_TITLE)" \
-          --reporter-html-export "newman/qa-overview.html" \
+          --reporter-htmlextra-omitHeaders \
           --reporter-junit-export "newman/qa-results.xml"
         NEWMAN_EXIT=$?
         set -e
 
         ls -la newman
         test -s newman/qa-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
-        test -s newman/qa-overview.html || { echo "overview report missing"; exit 1; }
 
         echo "##vso[task.uploadfile]$(pwd)/newman/qa-htmlextra.html"
-        echo "##vso[task.uploadfile]$(pwd)/newman/qa-overview.html"
 
         {
           echo "# Weather API Tests — QA"
           echo ""
           echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/qa-results.xml"
-          echo "- HTML (htmlextra): newman/qa-htmlextra.html"
-          echo "- HTML (overview): newman/qa-overview.html"
+          echo "- HTML (htmlextra): newman/qa-htmlextra.html (headers omitted)"
         } > newman/qa-summary.md
 
         echo "##vso[task.uploadsummary]$(pwd)/newman/qa-summary.md"
@@ -282,8 +276,8 @@ stages:
       inputs: { versionSpec: '18.x' }
       displayName: "Install Node.js 18.x"
 
-    - script: npm install -g newman newman-reporter-htmlextra newman-reporter-html
-      displayName: "Install Newman & reporters (htmlextra + html)"
+    - script: npm install -g newman newman-reporter-htmlextra
+      displayName: "Install Newman & htmlextra reporter"
 
     - script: |
         mkdir -p newman
@@ -292,28 +286,25 @@ stages:
           --environment env/uat.postman_environment.json \
           --env-var access_key="$(WEATHERSTACK_KEY)" \
           --env-var api_key="$(UAT_API_KEY)" \
-          --reporters cli,htmlextra,html,junit \
+          --reporters cli,htmlextra,junit \
           --reporter-htmlextra-export "newman/uat-htmlextra.html" \
           --reporter-htmlextra-title "$(HTMLEXTRA_TITLE)" \
-          --reporter-html-export "newman/uat-overview.html" \
+          --reporter-htmlextra-omitHeaders \
           --reporter-junit-export "newman/uat-results.xml"
         NEWMAN_EXIT=$?
         set -e
 
         ls -la newman
         test -s newman/uat-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
-        test -s newman/uat-overview.html || { echo "overview report missing"; exit 1; }
 
         echo "##vso[task.uploadfile]$(pwd)/newman/uat-htmlextra.html"
-        echo "##vso[task.uploadfile]$(pwd)/newman/uat-overview.html"
 
         {
           echo "# Weather API Tests — UAT"
           echo ""
           echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/uat-results.xml"
-          echo "- HTML (htmlextra): newman/uat-htmlextra.html"
-          echo "- HTML (overview): newman/uat-overview.html"
+          echo "- HTML (htmlextra): newman/uat-htmlextra.html (headers omitted)"
         } > newman/uat-summary.md
 
         echo "##vso[task.uploadsummary]$(pwd)/newman/uat-summary.md"
@@ -384,8 +375,8 @@ stages:
       inputs: { versionSpec: '18.x' }
       displayName: "Install Node.js 18.x"
 
-    - script: npm install -g newman newman-reporter-htmlextra newman-reporter-html
-      displayName: "Install Newman & reporters (htmlextra + html)"
+    - script: npm install -g newman newman-reporter-htmlextra
+      displayName: "Install Newman & htmlextra reporter"
 
     - script: |
         mkdir -p newman
@@ -394,28 +385,25 @@ stages:
           --environment env/prod.postman_environment.json \
           --env-var access_key="$(WEATHERSTACK_KEY)" \
           --env-var api_key="$(PROD_API_KEY)" \
-          --reporters cli,htmlextra,html,junit \
+          --reporters cli,htmlextra,junit \
           --reporter-htmlextra-export "newman/prod-htmlextra.html" \
           --reporter-htmlextra-title "$(HTMLEXTRA_TITLE)" \
-          --reporter-html-export "newman/prod-overview.html" \
+          --reporter-htmlextra-omitHeaders \
           --reporter-junit-export "newman/prod-results.xml"
         NEWMAN_EXIT=$?
         set -e
 
         ls -la newman
         test -s newman/prod-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
-        test -s newman/prod-overview.html || { echo "overview report missing"; exit 1; }
 
         echo "##vso[task.uploadfile]$(pwd)/newman/prod-htmlextra.html"
-        echo "##vso[task.uploadfile]$(pwd)/newman/prod-overview.html"
 
         {
           echo "# Weather API Tests — PROD"
           echo ""
           echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/prod-results.xml"
-          echo "- HTML (htmlextra): newman/prod-htmlextra.html"
-          echo "- HTML (overview): newman/prod-overview.html"
+          echo "- HTML (htmlextra): newman/prod-htmlextra.html (headers omitted)"
         } > newman/prod-summary.md
 
         echo "##vso[task.uploadsummary]$(pwd)/newman/prod-summary.md"
