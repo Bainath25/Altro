@@ -24,7 +24,7 @@ stages:
   dependsOn: []
   jobs:
   - job: Dev_FetchAndValidate
-    displayName: "DEV: Fetch Latest & Validate API"
+    displayName: "DEV: Validate API"
     steps:
     - checkout: none
 
@@ -134,7 +134,7 @@ stages:
   dependsOn: []
   jobs:
   - job: QA_FetchAndValidate
-    displayName: "QA: Fetch Latest & Validate API"
+    displayName: "QA: Validate API"
     steps:
     - checkout: none
 
@@ -239,7 +239,7 @@ stages:
   dependsOn: []
   jobs:
   - job: UAT_FetchAndValidate
-    displayName: "UAT: Fetch Latest & Validate API"
+    displayName: "UAT: Validate API"
     steps:
     - checkout: none
     - script: sudo apt-get update && sudo apt-get install -y jq
@@ -339,7 +339,7 @@ stages:
   dependsOn: []
   jobs:
   - job: Prod_FetchAndValidate
-    displayName: "PROD: Fetch Latest & Validate API"
+    displayName: "PROD: Validate API"
     steps:
     - checkout: none
     - script: sudo apt-get update && sudo apt-get install -y jq
