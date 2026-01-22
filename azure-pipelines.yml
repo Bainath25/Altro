@@ -1,4 +1,3 @@
-
 # azure-pipelines.yml
 trigger: none   # manual runs; set to - main if you also want CI
 
@@ -53,9 +52,24 @@ stages:
             env/dev.postman_environment.json > env/dev.tmp && mv env/dev.tmp env/dev.postman_environment.json
         fi
 
-        # Extract collection name for htmlextra title
-        COLLECTION_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
-        echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$COLLECTION_NAME"
+        # Extract & sanitize collection (project) name
+        RAW_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
+        SAFE_NAME="$(echo "$RAW_NAME" | tr ' ' '_' | tr -cd 'A-Za-z0-9_-')"
+
+        # Build ENV code and timestamp
+        ENV_CODE="DEV"
+        TS="$(date +%Y%m%d_%H%M%S)"
+
+        # Compose final file name: Project_ENV_timestamp.html
+        REPORT_HTML="${SAFE_NAME}_${ENV_CODE}_${TS}.html"
+
+        # Set variables for next steps
+        echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$RAW_NAME"
+        echo "##vso[task.setvariable variable=REPORT_HTML]$REPORT_HTML"
+
+        echo "Project (raw): $RAW_NAME"
+        echo "Project (safe): $SAFE_NAME"
+        echo "Report file: $REPORT_HTML"
         ls -la collections env
       displayName: "Fetch latest collection & DEV environment"
       env:
@@ -80,7 +94,7 @@ stages:
           --env-var access_key="$(WEATHERSTACK_KEY)" \
           --env-var api_key="$(DEV_API_KEY)" \
           --reporters cli,htmlextra,junit \
-          --reporter-htmlextra-export "newman/dev-htmlextra.html" \
+          --reporter-htmlextra-export "newman/$(REPORT_HTML)" \
           --reporter-htmlextra-title "$(HTMLEXTRA_TITLE)" \
           --reporter-htmlextra-omitHeaders \
           --reporter-junit-export "newman/dev-results.xml"
@@ -89,17 +103,17 @@ stages:
 
         # Verify files exist
         ls -la newman
-        test -s newman/dev-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
+        test -s "newman/$(REPORT_HTML)" || { echo "htmlextra report missing"; exit 1; }
 
         # Attach HTML file to the job (visible under Attachments)
-        echo "##vso[task.uploadfile]$(pwd)/newman/dev-htmlextra.html"
+        echo "##vso[task.uploadfile]$(pwd)/newman/$(REPORT_HTML)"
 
         {
           echo "# Weather API Tests — DEV"
           echo ""
           echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/dev-results.xml"
-          echo "- HTML (htmlextra): newman/dev-htmlextra.html (headers omitted)"
+          echo "- HTML (htmlextra): newman/$(REPORT_HTML)"
         } > newman/dev-summary.md
 
         echo "##vso[task.uploadsummary]$(pwd)/newman/dev-summary.md"
@@ -109,6 +123,7 @@ stages:
         WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
         DEV_API_KEY: $(DEV_API_KEY)
         HTMLEXTRA_TITLE: $(HTMLEXTRA_TITLE)
+        REPORT_HTML: $(REPORT_HTML)
 
     - task: PublishTestResults@2
       displayName: "Publish DEV test results"
@@ -162,8 +177,20 @@ stages:
             env/qa.postman_environment.json > env/qa.tmp && mv env/qa.tmp env/qa.postman_environment.json
         fi
 
-        COLLECTION_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
-        echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$COLLECTION_NAME"
+        # Extract & sanitize collection (project) name
+        RAW_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
+        SAFE_NAME="$(echo "$RAW_NAME" | tr ' ' '_' | tr -cd 'A-Za-z0-9_-')"
+
+        ENV_CODE="QA"
+        TS="$(date +%Y%m%d_%H%M%S)"
+        REPORT_HTML="${SAFE_NAME}_${ENV_CODE}_${TS}.html"
+
+        echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$RAW_NAME"
+        echo "##vso[task.setvariable variable=REPORT_HTML]$REPORT_HTML"
+
+        echo "Project (raw): $RAW_NAME"
+        echo "Project (safe): $SAFE_NAME"
+        echo "Report file: $REPORT_HTML"
         ls -la collections env
       displayName: "Fetch latest collection & QA environment"
       env:
@@ -187,7 +214,7 @@ stages:
           --env-var access_key="$(WEATHERSTACK_KEY)" \
           --env-var api_key="$(QA_API_KEY)" \
           --reporters cli,htmlextra,junit \
-          --reporter-htmlextra-export "newman/qa-htmlextra.html" \
+          --reporter-htmlextra-export "newman/$(REPORT_HTML)" \
           --reporter-htmlextra-title "$(HTMLEXTRA_TITLE)" \
           --reporter-htmlextra-omitHeaders \
           --reporter-junit-export "newman/qa-results.xml"
@@ -195,16 +222,16 @@ stages:
         set -e
 
         ls -la newman
-        test -s newman/qa-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
+        test -s "newman/$(REPORT_HTML)" || { echo "htmlextra report missing"; exit 1; }
 
-        echo "##vso[task.uploadfile]$(pwd)/newman/qa-htmlextra.html"
+        echo "##vso[task.uploadfile]$(pwd)/newman/$(REPORT_HTML)"
 
         {
           echo "# Weather API Tests — QA"
           echo ""
           echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/qa-results.xml"
-          echo "- HTML (htmlextra): newman/qa-htmlextra.html (headers omitted)"
+          echo "- HTML (htmlextra): newman/$(REPORT_HTML)"
         } > newman/qa-summary.md
 
         echo "##vso[task.uploadsummary]$(pwd)/newman/qa-summary.md"
@@ -214,6 +241,7 @@ stages:
         WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
         QA_API_KEY: $(QA_API_KEY)
         HTMLEXTRA_TITLE: $(HTMLEXTRA_TITLE)
+        REPORT_HTML: $(REPORT_HTML)
 
     - task: PublishTestResults@2
       displayName: "Publish QA test results"
@@ -242,6 +270,7 @@ stages:
     displayName: "UAT: Validate API"
     steps:
     - checkout: none
+
     - script: sudo apt-get update && sudo apt-get install -y jq
       displayName: "Install jq"
 
@@ -264,8 +293,19 @@ stages:
             env/uat.postman_environment.json > env/uat.tmp && mv env/uat.tmp env/uat.postman_environment.json
         fi
 
-        COLLECTION_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
-        echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$COLLECTION_NAME"
+        RAW_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
+        SAFE_NAME="$(echo "$RAW_NAME" | tr ' ' '_' | tr -cd 'A-Za-z0-9_-')"
+
+        ENV_CODE="UAT"
+        TS="$(date +%Y%m%d_%H%M%S)"
+        REPORT_HTML="${SAFE_NAME}_${ENV_CODE}_${TS}.html"
+
+        echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$RAW_NAME"
+        echo "##vso[task.setvariable variable=REPORT_HTML]$REPORT_HTML"
+
+        echo "Project (raw): $RAW_NAME"
+        echo "Project (safe): $SAFE_NAME"
+        echo "Report file: $REPORT_HTML"
         ls -la collections env
       displayName: "Fetch latest collection & UAT environment"
       env:
@@ -273,7 +313,8 @@ stages:
         BASE_URL_UAT: $(BASE_URL_UAT)
 
     - task: NodeTool@0
-      inputs: { versionSpec: '18.x' }
+      inputs:
+        versionSpec: '18.x'
       displayName: "Install Node.js 18.x"
 
     - script: npm install -g newman newman-reporter-htmlextra
@@ -287,7 +328,7 @@ stages:
           --env-var access_key="$(WEATHERSTACK_KEY)" \
           --env-var api_key="$(UAT_API_KEY)" \
           --reporters cli,htmlextra,junit \
-          --reporter-htmlextra-export "newman/uat-htmlextra.html" \
+          --reporter-htmlextra-export "newman/$(REPORT_HTML)" \
           --reporter-htmlextra-title "$(HTMLEXTRA_TITLE)" \
           --reporter-htmlextra-omitHeaders \
           --reporter-junit-export "newman/uat-results.xml"
@@ -295,16 +336,16 @@ stages:
         set -e
 
         ls -la newman
-        test -s newman/uat-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
+        test -s "newman/$(REPORT_HTML)" || { echo "htmlextra report missing"; exit 1; }
 
-        echo "##vso[task.uploadfile]$(pwd)/newman/uat-htmlextra.html"
+        echo "##vso[task.uploadfile]$(pwd)/newman/$(REPORT_HTML)"
 
         {
           echo "# Weather API Tests — UAT"
           echo ""
           echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/uat-results.xml"
-          echo "- HTML (htmlextra): newman/uat-htmlextra.html (headers omitted)"
+          echo "- HTML (htmlextra): newman/$(REPORT_HTML)"
         } > newman/uat-summary.md
 
         echo "##vso[task.uploadsummary]$(pwd)/newman/uat-summary.md"
@@ -314,6 +355,7 @@ stages:
         WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
         UAT_API_KEY: $(UAT_API_KEY)
         HTMLEXTRA_TITLE: $(HTMLEXTRA_TITLE)
+        REPORT_HTML: $(REPORT_HTML)
 
     - task: PublishTestResults@2
       displayName: "Publish UAT test results"
@@ -342,6 +384,7 @@ stages:
     displayName: "PROD: Validate API"
     steps:
     - checkout: none
+
     - script: sudo apt-get update && sudo apt-get install -y jq
       displayName: "Install jq"
 
@@ -363,8 +406,19 @@ stages:
             env/prod.postman_environment.json > env/prod.tmp && mv env/prod.tmp env/prod.postman_environment.json
         fi
 
-        COLLECTION_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
-        echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$COLLECTION_NAME"
+        RAW_NAME="$(jq -r '.info.name' collections/weatherstack.postman_collection.json)"
+        SAFE_NAME="$(echo "$RAW_NAME" | tr ' ' '_' | tr -cd 'A-Za-z0-9_-')"
+
+        ENV_CODE="PROD"
+        TS="$(date +%Y%m%d_%H%M%S)"
+        REPORT_HTML="${SAFE_NAME}_${ENV_CODE}_${TS}.html"
+
+        echo "##vso[task.setvariable variable=HTMLEXTRA_TITLE]$RAW_NAME"
+        echo "##vso[task.setvariable variable=REPORT_HTML]$REPORT_HTML"
+
+        echo "Project (raw): $RAW_NAME"
+        echo "Project (safe): $SAFE_NAME"
+        echo "Report file: $REPORT_HTML"
         ls -la collections env
       displayName: "Fetch latest collection & PROD environment"
       env:
@@ -372,7 +426,8 @@ stages:
         BASE_URL_PROD: $(BASE_URL_PROD)
 
     - task: NodeTool@0
-      inputs: { versionSpec: '18.x' }
+      inputs:
+        versionSpec: '18.x'
       displayName: "Install Node.js 18.x"
 
     - script: npm install -g newman newman-reporter-htmlextra
@@ -386,7 +441,7 @@ stages:
           --env-var access_key="$(WEATHERSTACK_KEY)" \
           --env-var api_key="$(PROD_API_KEY)" \
           --reporters cli,htmlextra,junit \
-          --reporter-htmlextra-export "newman/prod-htmlextra.html" \
+          --reporter-htmlextra-export "newman/$(REPORT_HTML)" \
           --reporter-htmlextra-title "$(HTMLEXTRA_TITLE)" \
           --reporter-htmlextra-omitHeaders \
           --reporter-junit-export "newman/prod-results.xml"
@@ -394,16 +449,16 @@ stages:
         set -e
 
         ls -la newman
-        test -s newman/prod-htmlextra.html || { echo "htmlextra report missing"; exit 1; }
+        test -s "newman/$(REPORT_HTML)" || { echo "htmlextra report missing"; exit 1; }
 
-        echo "##vso[task.uploadfile]$(pwd)/newman/prod-htmlextra.html"
+        echo "##vso[task.uploadfile]$(pwd)/newman/$(REPORT_HTML)"
 
         {
           echo "# Weather API Tests — PROD"
           echo ""
           echo "Exit code: ${NEWMAN_EXIT}"
           echo "- JUnit: newman/prod-results.xml"
-          echo "- HTML (htmlextra): newman/prod-htmlextra.html (headers omitted)"
+          echo "- HTML (htmlextra): newman/$(REPORT_HTML)"
         } > newman/prod-summary.md
 
         echo "##vso[task.uploadsummary]$(pwd)/newman/prod-summary.md"
@@ -413,6 +468,7 @@ stages:
         WEATHERSTACK_KEY: $(WEATHERSTACK_KEY)
         PROD_API_KEY: $(PROD_API_KEY)
         HTMLEXTRA_TITLE: $(HTMLEXTRA_TITLE)
+        REPORT_HTML: $(REPORT_HTML)
 
     - task: PublishTestResults@2
       displayName: "Publish PROD test results"
